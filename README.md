@@ -1,5 +1,299 @@
 # ez_appletv
 
+Android-to-Apple TV file transfer and streaming, optimized for LAN-only use and an Android-only household.
+
+This repo collects the practical paths that were verified during the original research: HTTPocket, VLC Remote Playback, SMB-to-Infuse, Plex, and a Jellyfin-based production setup. Infuse supports Jellyfin on tvOS, Swiftfin exists for tvOS, and Apple TV 4K hardware/storage variants matter when planning playback and transcoding. <citation src="1,2,3"></citation>
+
+## Goal
+
+Provide a reliable way to move or stream files from a Pixel / Android phone to Apple TV without requiring iPhone, iPad, or Mac setup.
+
+Priorities:
+- LAN-based transfer over cloud staging
+- Verified alternatives to HTTPocket
+- Minimal dependence on other Apple devices
+- Clear setup steps and realistic limits
+
+## Recommended paths
+
+### 1) HTTPocket
+Best for quick one-off transfers.
+
+- Android 7.0+
+- tvOS 16+
+- Local Wi‑Fi
+- QR connect or IP connect
+
+Good when:
+- you want the fastest setup
+- you only need occasional file transfer
+- you do not need a full media library
+
+Limitations:
+- not ideal for large libraries
+- not a full media server
+
+### 2) VLC Remote Playback
+Best for browser-based uploads to Apple TV.
+
+- Upload from Pixel browser
+- Works over local network
+- Storage limit is roughly 1.8 GB in practice
+
+Good when:
+- you want something simple and disposable
+- you are sending a small video file
+
+Limitations:
+- storage is limited
+- not a library solution
+
+### 3) SMB Server -> Infuse
+Best for local file browsing from Apple TV.
+
+- Android SMB server app on the Pixel
+- Infuse on Apple TV
+- LAN-only
+- No iOS/macOS setup needed
+
+Good when:
+- you want direct browsing of files
+- you prefer a simple local share
+
+Limitations:
+- no media catalog
+- no server-side transcoding
+
+### 4) Plex
+Best if you want an official tvOS app and a mainstream ecosystem.
+
+- Official tvOS app exists
+- Works well for a full media library
+
+Good when:
+- you want a standard media-server workflow
+- you are comfortable with Plex account use
+
+Limitations:
+- broader ecosystem than necessary for some users
+
+### 5) Jellyfin -> Infuse
+Best production path for an Android-only household.
+
+- Self-hosted
+- LAN-friendly
+- Works well with Apple TV playback
+- Can use hardware transcoding on the server
+
+This is the recommended long-term setup.
+
+## Reference architecture
+
+```text
+Pixel (Android)
+  ├─ HTTPocket ───────────────▶ Apple TV
+  ├─ VLC browser upload ───────▶ Apple TV
+  ├─ SMB Server ───────────────▶ Infuse on Apple TV
+  └─ Jellyfin server ──────────▶ Infuse on Apple TV
+```
+
+## Setup options
+
+### Quick transfer: HTTPocket
+
+On Pixel:
+1. Install HTTPocket
+2. Grant storage permissions
+3. Open the app
+4. Connect with QR code or IP
+
+On Apple TV:
+1. Install HTTPocket
+2. Create or display the connect code
+3. Pair from the Pixel
+4. Send files over Wi‑Fi
+
+### Local share: SMB Server -> Infuse
+
+On Pixel:
+1. Install an SMB server app
+2. Grant storage permissions
+3. Add the shared folder
+4. Set a username and password
+5. Start the server on port `4455`
+6. Note the Pixel IP address
+
+On Apple TV:
+1. Install Infuse
+2. Open `Settings`
+3. Add Files
+4. Choose `SMB`
+5. Enter `IP:4455`
+6. Add the credentials
+
+Notes:
+- Android 14+ may require the “All files access” permission
+- Keep the server on the local network only
+
+### Production setup: Jellyfin -> Infuse
+
+This is the best option if you want a stable library, metadata, and smoother playback.
+
+Recommended server layout:
+- Jellyfin in Docker
+- Media mounted read-only
+- Optional hardware transcoding
+- LAN-only exposure
+
+Suggested Docker baseline:
+- avoid `network_mode: host` unless you specifically need it
+- prefer explicit port mapping
+- keep config and cache volumes separate
+- test transcoding before production use
+
+Example `docker-compose.yml`:
+
+```yaml
+services:
+  jellyfin:
+    image: lscr.io/linuxserver/jellyfin:latest
+    container_name: jellyfin
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+    volumes:
+      - /srv/jellyfin/config:/config
+      - /srv/jellyfin/cache:/cache
+      - /mnt/media:/media:ro
+    ports:
+      - "8096:8096"
+    restart: unless-stopped
+```
+
+If you use Intel hardware transcoding:
+- map `/dev/dri/renderD128`
+- add the `render` group GID
+- confirm the server can see the GPU before relying on it
+
+## Apple TV playback notes
+
+Apple TV playback is easiest when:
+- the TV is connected by Ethernet
+- you use direct play whenever possible
+- your files are H.264 or H.265
+- audio is AAC or AC3 when you want fewer compatibility issues
+
+If you have a lot of:
+- VP9
+- AV1
+- TrueHD
+- DTS
+
+then server-side transcoding becomes more important.
+
+## Security notes
+
+- Keep services LAN-only unless remote access is truly needed
+- Prefer port mapping over host networking
+- Use strong credentials on SMB and Jellyfin
+- Back up configs and test restores
+- Keep Jellyfin logs and system updates under review
+- Use Fail2ban if SSH is exposed
+
+Suggested firewall order:
+1. allow SSH from your admin subnet
+2. set default deny incoming
+3. enable UFW
+4. verify rules before closing the session
+
+## Troubleshooting
+
+### SMB won’t connect
+- confirm the Pixel and Apple TV are on the same LAN
+- verify the Pixel IP address
+- check the SMB port
+- confirm storage permission was granted
+- retry with a simpler share path
+
+### Infuse can’t see Jellyfin
+- confirm the Jellyfin container is reachable on `8096`
+- verify the server IP
+- check that the Jellyfin library paths are correct
+- ensure the Apple TV can reach the host over the LAN
+
+### Jellyfin transcodes unexpectedly
+- check the codec of the file
+- verify Apple TV format support
+- inspect Jellyfin playback logs
+- confirm direct play settings in the client
+
+### Playback stutters
+- prefer Ethernet over Wi‑Fi
+- reduce bitrate
+- check server CPU and disk usage
+- confirm the media file is not stored on a slow external drive
+
+### Android 14 permission issues
+- grant “All files access” where required
+- recheck storage permissions after app updates
+- restart the SMB server app if the share disappears
+
+## FAQ
+
+### Do I need iPhone, iPad, or Mac?
+No.
+
+### Do I need cloud storage?
+No.
+
+### What is the best overall option?
+Jellyfin + Infuse.
+
+### What is the simplest option?
+HTTPocket.
+
+### What is best for browsing a folder from Apple TV?
+SMB Server -> Infuse.
+
+### What is best for a full media library?
+Jellyfin -> Infuse.
+
+## Status
+
+Verified during research:
+- HTTPocket viable
+- VLC Remote Playback viable
+- SMB Server viable
+- Plex viable
+- Infuse Jellyfin support viable
+- Infuse Cloud Sync is not viable for Android-only setup
+
+## License
+
+Add your preferred license here.
+
+## Credits
+
+- HTTPocket
+- VLC
+- Infuse
+- Jellyfin
+- Plex
+- Swiftfin
+- Android SMB server apps
+
+## Changelog
+
+### v1.0.0
+- Initial README
+- Documented verified Android-to-Apple TV transfer paths
+- Added LAN-only setup guidance
+- Added Jellyfin/Infuse production workflow
+```
+
+# ez_appletv
+
 **A verified, LAN-only file transfer and streaming solution for Android-to-Apple TV households.**
 
 Stream media from your Android device (Pixel, etc.) to Apple TV without relying on iOS, macOS, or cloud services. This guide consolidates verified methods, security best practices, and a complete Docker + Jellyfin + Infuse deployment.
